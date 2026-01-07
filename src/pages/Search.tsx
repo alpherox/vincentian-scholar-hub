@@ -1,21 +1,18 @@
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { ResearchCard } from '@/components/research/ResearchCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useResearch } from '@/contexts/ResearchContext';
+import { useResearches, useSearchResearches } from '@/hooks/useResearch';
 import { SearchFilters } from '@/types';
-import { 
-  Search, Filter, ChevronDown, ChevronUp, 
-  SortAsc, FileSearch, Loader2, X 
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Search, Filter, ChevronDown, ChevronUp, SortAsc, FileSearch, Loader2, X } from 'lucide-react';
 
 export default function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { researches, searchResults, isSearching, search } = useResearch();
+  const { researches } = useResearches();
+  const { searchResults, isSearching, search } = useSearchResearches();
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   
@@ -25,23 +22,16 @@ export default function SearchPage() {
     keywords: '',
     author: '',
     abstract: '',
+    strand: '',
+    label: '',
+    academic_year: '',
     sortBy: 'relevance',
   });
 
-  // Search on mount if there's a query param
-  useEffect(() => {
-    const query = searchParams.get('q');
-    if (query) {
-      setFilters(prev => ({ ...prev, query }));
-      search({ ...filters, query });
-      setHasSearched(true);
-    }
-  }, []);
-
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (filters.query.trim() || filters.title || filters.keywords || filters.author || filters.abstract) {
-      search(filters);
+      await search(filters);
       setHasSearched(true);
       if (filters.query) {
         setSearchParams({ q: filters.query });
@@ -56,6 +46,9 @@ export default function SearchPage() {
       keywords: '',
       author: '',
       abstract: '',
+      strand: '',
+      label: '',
+      academic_year: '',
       sortBy: 'relevance',
     });
     setSearchParams({});
@@ -67,7 +60,6 @@ export default function SearchPage() {
   return (
     <Layout>
       <div className="container py-8">
-        {/* Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold sm:text-3xl flex items-center gap-3">
             <Search className="h-7 w-7 text-primary" />
@@ -78,10 +70,8 @@ export default function SearchPage() {
           </p>
         </div>
 
-        {/* Search Form */}
         <form onSubmit={handleSubmit} className="mb-8">
           <div className="rounded-xl border border-border bg-card p-6 shadow-card">
-            {/* Main Search */}
             <div className="flex gap-3">
               <div className="relative flex-1">
                 <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
@@ -94,15 +84,10 @@ export default function SearchPage() {
                 />
               </div>
               <Button type="submit" size="lg" className="h-12 px-8" disabled={isSearching}>
-                {isSearching ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  'Search'
-                )}
+                {isSearching ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Search'}
               </Button>
             </div>
 
-            {/* Advanced Toggle */}
             <button
               type="button"
               onClick={() => setShowAdvanced(!showAdvanced)}
@@ -113,7 +98,6 @@ export default function SearchPage() {
               {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </button>
 
-            {/* Advanced Filters */}
             {showAdvanced && (
               <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-fade-in">
                 <div className="space-y-2">
@@ -144,34 +128,35 @@ export default function SearchPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="abstract">Abstract</Label>
-                  <Input
-                    id="abstract"
-                    value={filters.abstract}
-                    onChange={(e) => setFilters(prev => ({ ...prev, abstract: e.target.value }))}
-                    placeholder="Search in abstract..."
-                  />
+                  <Label htmlFor="strand">Strand</Label>
+                  <select
+                    id="strand"
+                    value={filters.strand}
+                    onChange={(e) => setFilters(prev => ({ ...prev, strand: e.target.value as any }))}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3"
+                  >
+                    <option value="">All Strands</option>
+                    <option value="STEM">STEM</option>
+                    <option value="HUMSS">HUMSS</option>
+                    <option value="ABM">ABM</option>
+                    <option value="ICT">ICT</option>
+                    <option value="GAS">GAS</option>
+                  </select>
                 </div>
               </div>
             )}
           </div>
         </form>
 
-        {/* Results Header */}
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            {hasSearched ? (
-              <p className="text-muted-foreground">
-                Found <span className="font-medium text-foreground">{searchResults.length}</span> result{searchResults.length !== 1 ? 's' : ''}
-                {filters.query && (
-                  <span> for "<span className="text-primary">{filters.query}</span>"</span>
-                )}
-              </p>
-            ) : (
-              <p className="text-muted-foreground">
-                Showing all <span className="font-medium text-foreground">{researches.length}</span> research papers
-              </p>
-            )}
+            <p className="text-muted-foreground">
+              {hasSearched ? (
+                <>Found <span className="font-medium text-foreground">{searchResults.length}</span> result{searchResults.length !== 1 ? 's' : ''}</>
+              ) : (
+                <>Showing all <span className="font-medium text-foreground">{researches.length}</span> research papers</>
+              )}
+            </p>
           </div>
 
           <div className="flex items-center gap-3">
@@ -191,7 +176,7 @@ export default function SearchPage() {
                   setFilters(newFilters);
                   if (hasSearched) search(newFilters);
                 }}
-                className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="h-9 rounded-lg border border-input bg-background px-3 text-sm"
               >
                 <option value="relevance">Relevance</option>
                 <option value="date">Date (Newest)</option>
@@ -201,7 +186,6 @@ export default function SearchPage() {
           </div>
         </div>
 
-        {/* Results */}
         {isSearching ? (
           <div className="flex flex-col items-center justify-center py-16">
             <Loader2 className="h-10 w-10 animate-spin text-primary" />
@@ -209,14 +193,8 @@ export default function SearchPage() {
           </div>
         ) : resultsToShow.length > 0 ? (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {resultsToShow.map((research, index) => (
-              <div
-                key={research.id}
-                className="animate-fade-in"
-                style={{ animationDelay: `${0.05 * index}s` }}
-              >
-                <ResearchCard research={research} />
-              </div>
+            {resultsToShow.map((research) => (
+              <ResearchCard key={research.id} research={research} />
             ))}
           </div>
         ) : (
@@ -224,7 +202,6 @@ export default function SearchPage() {
             <FileSearch className="h-16 w-16 text-destructive/50" />
             <h3 className="mt-4 text-lg font-medium text-destructive">No results found</h3>
             <p className="mt-2 text-center text-sm text-muted-foreground max-w-md">
-              We couldn't find any research matching your search criteria. 
               Try adjusting your filters or using different keywords.
             </p>
             <Button variant="outline" className="mt-6" onClick={handleReset}>

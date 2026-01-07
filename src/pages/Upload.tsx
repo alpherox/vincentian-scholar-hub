@@ -1,4 +1,4 @@
-import { useState, useEffect, FormEvent, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
@@ -7,18 +7,17 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
-import { useResearch } from '@/contexts/ResearchContext';
+import { useCreateResearch } from '@/hooks/useResearch';
 import { useToast } from '@/hooks/use-toast';
-import { 
-  Upload, FileText, X, Check, Loader2, 
-  Sparkles, AlertCircle, File 
-} from 'lucide-react';
+import { extractTextFromPDF, extractTextFromImage } from '@/lib/ocr';
+import { Upload, FileText, X, Check, Loader2, Sparkles, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
+import type { ResearchLabel, ResearchStrand } from '@/types';
 
 export default function UploadPage() {
   const { user, isAuthenticated } = useAuth();
-  const { addResearch } = useResearch();
+  const createResearch = useCreateResearch();
   const navigate = useNavigate();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -27,21 +26,18 @@ export default function UploadPage() {
   const [keywords, setKeywords] = useState('');
   const [abstract, setAbstract] = useState('');
   const [file, setFile] = useState<File | null>(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [isUploading, setIsUploading] = useState(false);
+  const [academicYear, setAcademicYear] = useState('');
+  const [strand, setStrand] = useState<ResearchStrand>('Other');
+  const [label, setLabel] = useState<ResearchLabel>('other');
+  const [ocrProgress, setOcrProgress] = useState(0);
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState('');
 
-  // Redirect if not authenticated or not a researcher
   useEffect(() => {
     if (!isAuthenticated) {
       navigate('/auth');
-    } else if (user?.role !== 'researcher') {
-      toast({
-        title: 'Access Denied',
-        description: 'Only researchers can upload papers.',
-        variant: 'destructive',
-      });
+    } else if (user?.role !== 'researcher' && user?.role !== 'admin') {
+      toast({ title: 'Access Denied', description: 'Only researchers can upload papers.', variant: 'destructive' });
       navigate('/dashboard');
     }
   }, [isAuthenticated, user, navigate, toast]);
@@ -79,72 +75,58 @@ export default function UploadPage() {
     }
   };
 
-  const simulateOCR = async () => {
+  const runOCR = async () => {
     if (!file) return;
     
     setIsScanning(true);
+    setOcrProgress(0);
     
-    // Simulate OCR processing
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Fill in demo data as if scanned
-    setTitle('Extracted Research Title from Scanned Document');
-    setKeywords('OCR, document processing, text extraction, machine learning');
-    setAbstract('This abstract was automatically extracted from the uploaded document using OCR technology. The actual implementation would use a library like Tesseract.js to process the PDF and extract text content, which would then be parsed to identify the title, keywords, and abstract sections.');
-    
-    setIsScanning(false);
-    toast({
-      title: 'Scan Complete',
-      description: 'Document content has been extracted. Please review and edit as needed.',
-    });
+    try {
+      const result = await extractTextFromPDF(file, setOcrProgress);
+      setTitle(result.title);
+      setKeywords(result.keywords.join(', '));
+      setAbstract(result.abstract);
+      
+      toast({
+        title: 'Scan Complete',
+        description: 'Document content has been extracted. Please review and edit as needed.',
+      });
+    } catch (err) {
+      console.error('OCR Error:', err);
+      toast({
+        title: 'OCR Failed',
+        description: 'Could not extract text. Please enter details manually.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsScanning(false);
+    }
   };
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!title.trim()) {
-      setError('Please enter a title.');
-      return;
+    if (!title.trim()) { setError('Please enter a title.'); return; }
+    if (!keywords.trim()) { setError('Please enter at least one keyword.'); return; }
+    if (!abstract.trim()) { setError('Please enter an abstract.'); return; }
+
+    try {
+      await createResearch.mutateAsync({
+        title,
+        abstract,
+        keywords: keywords.split(',').map(k => k.trim()).filter(k => k),
+        file: file || undefined,
+        academic_year: academicYear || undefined,
+        strand,
+        label,
+      });
+
+      toast({ title: 'Research Uploaded!', description: 'Your paper has been successfully uploaded.' });
+      navigate('/dashboard');
+    } catch (err: any) {
+      setError(err.message || 'Failed to upload research.');
     }
-    if (!keywords.trim()) {
-      setError('Please enter at least one keyword.');
-      return;
-    }
-    if (!abstract.trim()) {
-      setError('Please enter an abstract.');
-      return;
-    }
-
-    setIsUploading(true);
-
-    // Simulate upload progress
-    for (let i = 0; i <= 100; i += 10) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-      setUploadProgress(i);
-    }
-
-    // Add the research
-    const keywordsArray = keywords.split(',').map(k => k.trim()).filter(k => k);
-    
-    addResearch({
-      title,
-      abstract,
-      keywords: keywordsArray,
-      authorId: user!.id,
-      authorName: user!.fullName,
-      authorAffiliation: user!.affiliation,
-      fileName: file?.name,
-    });
-
-    setIsUploading(false);
-    
-    toast({
-      title: 'Research Uploaded!',
-      description: 'Your paper has been successfully uploaded and is now searchable.',
-    });
-
-    navigate('/dashboard');
   };
 
   const keywordTags = keywords.split(',').map(k => k.trim()).filter(k => k);
@@ -154,19 +136,15 @@ export default function UploadPage() {
   return (
     <Layout>
       <div className="container max-w-3xl py-8">
-        {/* Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold sm:text-3xl flex items-center gap-3">
             <Upload className="h-7 w-7 text-accent" />
             Upload Research
           </h1>
-          <p className="mt-2 text-muted-foreground">
-            Share your academic paper with the Vincentian research community
-          </p>
+          <p className="mt-2 text-muted-foreground">Share your academic paper with the community</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Error Message */}
           {error && (
             <div className="flex items-center gap-2 rounded-lg bg-destructive/10 p-3 text-sm text-destructive animate-fade-in">
               <AlertCircle className="h-4 w-4 shrink-0" />
@@ -174,7 +152,6 @@ export default function UploadPage() {
             </div>
           )}
 
-          {/* File Upload */}
           <div className="rounded-xl border border-border bg-card p-6">
             <Label className="text-base font-semibold mb-4 block">Research File (PDF)</Label>
             
@@ -182,189 +159,92 @@ export default function UploadPage() {
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
               className={cn(
-                "relative rounded-xl border-2 border-dashed p-8 text-center transition-all",
-                file 
-                  ? "border-success bg-success/5" 
-                  : "border-border hover:border-primary hover:bg-primary/5 cursor-pointer"
+                "relative rounded-xl border-2 border-dashed p-8 text-center transition-all cursor-pointer",
+                file ? "border-green-500 bg-green-500/5" : "border-border hover:border-primary hover:bg-primary/5"
               )}
               onClick={() => !file && fileInputRef.current?.click()}
             >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="application/pdf"
-                onChange={handleFileSelect}
-                className="hidden"
-              />
+              <input ref={fileInputRef} type="file" accept="application/pdf" onChange={handleFileSelect} className="hidden" />
               
               {file ? (
                 <div className="flex flex-col items-center gap-3">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-success/20">
-                    <Check className="h-7 w-7 text-success" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-foreground">{file.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {(file.size / (1024 * 1024)).toFixed(2)} MB
-                    </p>
-                  </div>
+                  <Check className="h-10 w-10 text-green-500" />
+                  <p className="font-medium">{file.name}</p>
+                  <p className="text-sm text-muted-foreground">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
                   <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setFile(null);
-                      }}
-                      className="gap-1"
-                    >
-                      <X className="h-3 w-3" />
-                      Remove
+                    <Button type="button" variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); setFile(null); }}>
+                      <X className="h-3 w-3 mr-1" /> Remove
                     </Button>
-                    <Button
-                      type="button"
-                      variant="accent"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        simulateOCR();
-                      }}
-                      disabled={isScanning}
-                      className="gap-1"
-                    >
-                      {isScanning ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-3 w-3" />
-                      )}
+                    <Button type="button" variant="accent" size="sm" onClick={(e) => { e.stopPropagation(); runOCR(); }} disabled={isScanning}>
+                      {isScanning ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1" />}
                       {isScanning ? 'Scanning...' : 'Auto-Extract Text'}
                     </Button>
                   </div>
+                  {isScanning && <Progress value={ocrProgress} className="w-full mt-2" />}
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-3">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-secondary">
-                    <FileText className="h-7 w-7 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <p className="font-medium">
-                      Drop your PDF here or <span className="text-primary">browse</span>
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Maximum file size: 50MB
-                    </p>
-                  </div>
+                  <FileText className="h-10 w-10 text-muted-foreground" />
+                  <p>Drop your PDF here or <span className="text-primary">browse</span></p>
+                  <p className="text-sm text-muted-foreground">Maximum file size: 50MB</p>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Title */}
-          <div className="rounded-xl border border-border bg-card p-6">
-            <div className="space-y-2">
-              <Label htmlFor="title" className="text-base font-semibold">
-                Title <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Enter the title of your research paper"
-                className="h-12 text-base"
-                required
-              />
+          <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+            <div>
+              <Label htmlFor="title">Title *</Label>
+              <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Research paper title" className="mt-1" />
             </div>
-          </div>
-
-          {/* Keywords */}
-          <div className="rounded-xl border border-border bg-card p-6">
-            <div className="space-y-2">
-              <Label htmlFor="keywords" className="text-base font-semibold">
-                Keywords <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="keywords"
-                value={keywords}
-                onChange={(e) => setKeywords(e.target.value)}
-                placeholder="Enter keywords separated by commas (e.g., AI, healthcare, diagnostics)"
-                required
-              />
+            <div>
+              <Label htmlFor="keywords">Keywords *</Label>
+              <Input id="keywords" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="Comma-separated keywords" className="mt-1" />
               {keywordTags.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 pt-2">
-                  {keywordTags.map((tag, index) => (
-                    <Badge 
-                      key={index} 
-                      variant="secondary"
-                      className="bg-accent/20 text-accent-foreground"
-                    >
-                      {tag}
-                    </Badge>
-                  ))}
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {keywordTags.map((tag, i) => <Badge key={i} variant="secondary" className="bg-accent/20">{tag}</Badge>)}
                 </div>
               )}
             </div>
-          </div>
-
-          {/* Abstract */}
-          <div className="rounded-xl border border-border bg-card p-6">
-            <div className="space-y-2">
-              <Label htmlFor="abstract" className="text-base font-semibold">
-                Abstract <span className="text-destructive">*</span>
-              </Label>
-              <Textarea
-                id="abstract"
-                value={abstract}
-                onChange={(e) => setAbstract(e.target.value)}
-                placeholder="Enter the abstract of your research paper..."
-                className="min-h-[200px] resize-y"
-                required
-              />
-              <p className="text-xs text-muted-foreground">
-                {abstract.length} characters
-              </p>
+            <div>
+              <Label htmlFor="abstract">Abstract *</Label>
+              <Textarea id="abstract" value={abstract} onChange={(e) => setAbstract(e.target.value)} placeholder="Research abstract..." className="mt-1 min-h-[150px]" />
             </div>
           </div>
 
-          {/* Upload Progress */}
-          {isUploading && (
-            <div className="rounded-xl border border-primary/20 bg-primary/5 p-6 animate-fade-in">
-              <div className="flex items-center gap-3 mb-3">
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                <span className="font-medium">Uploading your research...</span>
-              </div>
-              <Progress value={uploadProgress} className="h-2" />
-              <p className="mt-2 text-sm text-muted-foreground">{uploadProgress}% complete</p>
+          <div className="rounded-xl border border-border bg-card p-6 grid gap-4 sm:grid-cols-3">
+            <div>
+              <Label htmlFor="year">Academic Year</Label>
+              <Input id="year" value={academicYear} onChange={(e) => setAcademicYear(e.target.value)} placeholder="e.g., 2024-2025" className="mt-1" />
             </div>
-          )}
+            <div>
+              <Label htmlFor="strand">Strand</Label>
+              <select id="strand" value={strand} onChange={(e) => setStrand(e.target.value as ResearchStrand)} className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3">
+                <option value="Other">Other</option>
+                <option value="STEM">STEM</option>
+                <option value="HUMSS">HUMSS</option>
+                <option value="ABM">ABM</option>
+                <option value="ICT">ICT</option>
+                <option value="GAS">GAS</option>
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="label">Research Type</Label>
+              <select id="label" value={label} onChange={(e) => setLabel(e.target.value as ResearchLabel)} className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3">
+                <option value="other">Other</option>
+                <option value="practical_research">Practical Research</option>
+                <option value="capstone">Capstone</option>
+                <option value="thesis">Thesis</option>
+                <option value="dissertation">Dissertation</option>
+              </select>
+            </div>
+          </div>
 
-          {/* Submit */}
           <div className="flex gap-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => navigate('/dashboard')}
-              className="flex-1"
-              disabled={isUploading}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              className="flex-1"
-              disabled={isUploading || isScanning}
-            >
-              {isUploading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Uploading...
-                </>
-              ) : (
-                <>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Upload Research
-                </>
-              )}
+            <Button type="button" variant="outline" onClick={() => navigate('/dashboard')} className="flex-1">Cancel</Button>
+            <Button type="submit" className="flex-1" disabled={createResearch.isPending}>
+              {createResearch.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+              Upload Research
             </Button>
           </div>
         </form>
