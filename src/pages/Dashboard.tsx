@@ -5,22 +5,19 @@ import { Button } from '@/components/ui/button';
 import { ResearchCard } from '@/components/research/ResearchCard';
 import { SearchBar } from '@/components/search/SearchBar';
 import { useAuth } from '@/contexts/AuthContext';
-import { useResearchesByAuthor } from '@/hooks/useResearch';
-import { useBookmarks } from '@/hooks/useBookmarks';
+import { useResearch } from '@/contexts/ResearchContext';
 import { 
   Upload, Search, FileText, Eye, Star, User, 
-  Plus, BookOpen, Loader2
+  Edit, Trash2, Plus, BookOpen 
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export default function Dashboard() {
   const { user, isAuthenticated } = useAuth();
+  const { researches, getResearchesByAuthor, getBookmarkedResearches, deleteResearch } = useResearch();
   const navigate = useNavigate();
-  
-  const { data: myResearches = [], isLoading: loadingResearches } = useResearchesByAuthor(
-    user?.role === 'researcher' ? user?.id : undefined
-  );
-  const { bookmarkedResearches, isLoading: loadingBookmarks } = useBookmarks();
 
+  // Redirect if not authenticated
   useEffect(() => {
     if (!isAuthenticated) {
       navigate('/auth');
@@ -30,11 +27,22 @@ export default function Dashboard() {
   if (!user) return null;
 
   const isResearcher = user.role === 'researcher';
+  const myResearches = isResearcher ? getResearchesByAuthor(user.id) : [];
+  const bookmarkedResearches = getBookmarkedResearches();
+
+  // Stats for researcher
   const totalViews = myResearches.reduce((sum, r) => sum + r.views, 0);
+
+  const handleDelete = (id: string) => {
+    if (confirm('Are you sure you want to delete this research?')) {
+      deleteResearch(id);
+    }
+  };
 
   return (
     <Layout>
       <div className="container py-8">
+        {/* Header */}
         <div className="mb-8">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -60,12 +68,15 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Quick Search */}
         <div className="mb-8">
           <SearchBar autoNavigate />
         </div>
 
         <div className="grid gap-8 lg:grid-cols-3">
+          {/* Main Content */}
           <div className="lg:col-span-2 space-y-8">
+            {/* Researcher: My Uploads */}
             {isResearcher && (
               <section>
                 <div className="mb-4 flex items-center justify-between">
@@ -78,11 +89,7 @@ export default function Dashboard() {
                   </span>
                 </div>
 
-                {loadingResearches ? (
-                  <div className="flex justify-center py-8">
-                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                  </div>
-                ) : myResearches.length > 0 ? (
+                {myResearches.length > 0 ? (
                   <div className="rounded-xl border border-border overflow-hidden">
                     <table className="w-full">
                       <thead className="bg-secondary/50 text-sm">
@@ -90,6 +97,7 @@ export default function Dashboard() {
                           <th className="px-4 py-3 text-left font-medium">Title</th>
                           <th className="px-4 py-3 text-left font-medium hidden sm:table-cell">Date</th>
                           <th className="px-4 py-3 text-left font-medium">Views</th>
+                          <th className="px-4 py-3 text-right font-medium">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
@@ -104,13 +112,30 @@ export default function Dashboard() {
                               </Link>
                             </td>
                             <td className="px-4 py-3 text-sm text-muted-foreground hidden sm:table-cell">
-                              {new Date(research.created_at).toLocaleDateString()}
+                              {new Date(research.uploadDate).toLocaleDateString()}
                             </td>
                             <td className="px-4 py-3">
                               <span className="flex items-center gap-1 text-sm">
                                 <Eye className="h-3.5 w-3.5" />
                                 {research.views}
                               </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-end gap-1">
+                                <Link to={`/upload?edit=${research.id}`}>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                </Link>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  onClick={() => handleDelete(research.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -135,6 +160,7 @@ export default function Dashboard() {
               </section>
             )}
 
+            {/* Bookmarked Research */}
             <section>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold flex items-center gap-2">
@@ -146,11 +172,7 @@ export default function Dashboard() {
                 </span>
               </div>
 
-              {loadingBookmarks ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                </div>
-              ) : bookmarkedResearches.length > 0 ? (
+              {bookmarkedResearches.length > 0 ? (
                 <div className="grid gap-4 sm:grid-cols-2">
                   {bookmarkedResearches.map((research) => (
                     <ResearchCard key={research.id} research={research} />
@@ -174,7 +196,9 @@ export default function Dashboard() {
             </section>
           </div>
 
+          {/* Sidebar */}
           <div className="space-y-6">
+            {/* Profile Card */}
             <div className="rounded-xl border border-border bg-card p-6">
               <div className="flex items-center gap-4">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-2xl text-primary-foreground">
@@ -199,6 +223,7 @@ export default function Dashboard() {
               </Button>
             </div>
 
+            {/* Stats (Researcher only) */}
             {isResearcher && (
               <div className="rounded-xl border border-border bg-card p-6">
                 <h3 className="font-semibold mb-4">Your Stats</h3>
@@ -214,6 +239,36 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
+
+            {/* Quick Links */}
+            <div className="rounded-xl border border-border bg-card p-6">
+              <h3 className="font-semibold mb-4">Quick Links</h3>
+              <div className="space-y-2">
+                <Link 
+                  to="/search" 
+                  className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-secondary transition-colors"
+                >
+                  <Search className="h-4 w-4 text-primary" />
+                  Search Research
+                </Link>
+                {isResearcher && (
+                  <Link 
+                    to="/upload" 
+                    className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-secondary transition-colors"
+                  >
+                    <Upload className="h-4 w-4 text-accent" />
+                    Upload Paper
+                  </Link>
+                )}
+                <Link 
+                  to={`/author/${user.id}`} 
+                  className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-secondary transition-colors"
+                >
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  View Public Profile
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
       </div>

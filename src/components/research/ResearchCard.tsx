@@ -3,7 +3,7 @@ import { Research } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Eye, Calendar, Star, User } from 'lucide-react';
-import { useBookmarks } from '@/hooks/useBookmarks';
+import { useResearch } from '@/contexts/ResearchContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 
@@ -13,11 +13,11 @@ interface ResearchCardProps {
 }
 
 export function ResearchCard({ research, className }: ResearchCardProps) {
-  const { isBookmarked, toggleBookmark } = useBookmarks();
+  const { isBookmarked, toggleBookmark } = useResearch();
   const { isAuthenticated } = useAuth();
   const bookmarked = isBookmarked(research.id);
 
-  const formatDate = (date: string) => {
+  const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
@@ -65,13 +65,13 @@ export function ResearchCard({ research, className }: ResearchCardProps) {
 
       {/* Author */}
       <Link 
-        to={`/author/${research.author_id}`}
+        to={`/author/${research.authorId}`}
         className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <User className="h-3.5 w-3.5" />
-        <span>{research.author_name}</span>
-        {research.author_affiliation && (
-          <span className="text-muted-foreground/60">• {research.author_affiliation}</span>
+        <span>{research.authorName}</span>
+        {research.authorAffiliation && (
+          <span className="text-muted-foreground/60">• {research.authorAffiliation}</span>
         )}
       </Link>
 
@@ -98,31 +98,12 @@ export function ResearchCard({ research, className }: ResearchCardProps) {
         )}
       </div>
 
-      {/* Labels */}
-      <div className="mb-4 flex flex-wrap gap-1.5">
-        {research.strand && research.strand !== 'Other' && (
-          <Badge variant="outline" className="text-xs">
-            {research.strand}
-          </Badge>
-        )}
-        {research.label && research.label !== 'other' && (
-          <Badge variant="outline" className="text-xs capitalize">
-            {research.label.replace('_', ' ')}
-          </Badge>
-        )}
-        {research.academic_year && (
-          <Badge variant="outline" className="text-xs">
-            {research.academic_year}
-          </Badge>
-        )}
-      </div>
-
       {/* Meta */}
       <div className="flex items-center justify-between pt-4 border-t border-border">
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <Calendar className="h-3.5 w-3.5" />
-            {formatDate(research.created_at)}
+            {formatDate(research.uploadDate)}
           </span>
           <span className="flex items-center gap-1">
             <Eye className="h-3.5 w-3.5" />
